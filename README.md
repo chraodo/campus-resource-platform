@@ -45,6 +45,11 @@ DATABASE_URL=sqlite:////tmp/campus-migration-check.db uv run alembic -c backend/
 
 容器环境和 CI 配置见 `Dockerfile`、`compose.yaml`、`.github/workflows/ci.yml`。私有 GitHub 仓库已创建；本机没有 Docker，容器构建和 GitHub 托管流水线尚未实跑。不得把配置文件说成已部署。
 
+## 汇报与分工材料
+
+- [六人分工与老师可能提问](docs/六人分工与老师提问.md)：分工总表、逐人职责和各自可能遇到的问题。
+- [启动评审讲稿与演示问答](docs/kickoff-review.md)：汇报顺序、代码目录说明、演示步骤和常见问题。
+
 ## 目录
 
 ```text
@@ -63,6 +68,6 @@ campus-resource-platform/
 
 ## 这次启动评审要确认的事
 
-六人真实姓名和模块负责人、公共层 D 的归属及工作量、可选 Agent 是否实施、业务规则中尚未确认的期限/申诉/审批细节、代码托管位置和下一次评审时间。候选方案都在 `docs/team-plan.md` 与 `docs/decision-record.md`，会议结果留空给组员填写。
+六人真实姓名和模块负责人、公共层 D 的归属及工作量、可选 Agent 是否实施、业务规则中尚未确认的期限/申诉/审批细节、下一次评审时间。候选方案都在 `docs/六人分工与老师提问.md` 与 `docs/decision-record.md`，会议结果留空给组员填写。
 
 项目代码由 coding agent 起草并经过本地自动化测试；组员尚未逐项人工审查或签收。GitHub 私有仓库为 `yushu212/campus-resource-platform`；初始提交是供组内审查的 AI 草稿，不代表成员已完成人工贡献。远程 CI、PR 和生产部署均未完成。
