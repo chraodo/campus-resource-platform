@@ -44,7 +44,7 @@ uv run pytest -q
 DATABASE_URL=sqlite:////tmp/campus-migration-check.db uv run alembic -c backend/alembic.ini upgrade head
 ```
 
-容器环境和 CI 配置见 `Dockerfile`、`compose.yaml`、`.github/workflows/ci.yml`。GitHub 仓库现为公开。此前自动 CI 的 Python 检查和 13 条测试通过，但在可选 Agent 打包检查处失败；已修正打包命令，新的流水线结果以 GitHub Actions 页面为准。不要把配置文件说成已部署。
+容器环境和 CI 配置见 `Dockerfile`、`compose.yaml`、`.github/workflows/ci.yml`。GitHub 仓库现为公开。GitHub Actions 已通过代码检查、13 条测试、空库迁移、Compose 测试环境和冒烟流程；[本次运行记录](https://github.com/yushu212/campus-resource-platform/actions/runs/41776105164)。生产部署尚未进行，不要把配置文件说成已部署。
 
 ## 汇报与分工材料
 
@@ -71,4 +71,4 @@ campus-resource-platform/
 
 六人真实姓名和模块负责人、公共层 D 的归属及工作量、可选 Agent 是否实施、业务规则中尚未确认的期限/申诉/审批细节、下一次评审时间。候选方案都在 `docs/六人分工与老师提问.md` 与 `docs/decision-record.md`，会议结果留空给组员填写。
 
-项目代码由 coding agent 起草并经过自动化测试；组员尚未逐项人工审查或签收。公开 GitHub 仓库为 `yushu212/campus-resource-platform`；任何人都可以查看，初始提交是供组内审查的 AI 草稿，不代表成员已完成人工贡献。远程 CI 仍需确认修正后的结果，PR 和生产部署均未完成。
+项目代码由 coding agent 起草并经过自动化测试；组员尚未逐项人工审查或签收。公开 GitHub 仓库为 `yushu212/campus-resource-platform`；任何人都可以查看，初始提交是供组内审查的 AI 草稿，不代表成员已完成人工贡献。远程 CI 已通过，PR 和生产部署尚未完成。

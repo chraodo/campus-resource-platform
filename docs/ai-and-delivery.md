@@ -22,7 +22,7 @@
 - GitHub Actions 模板会再以 Compose 启动新 PostgreSQL 实例，执行登录、查座位、幂等预约和冲突验证。
 - 生产 workflow 仅手动触发、仅使用已审查标签，并要求 GitHub `production` Environment 审批与 self-hosted runner。
 
-公开 GitHub 仓库已创建。此前自动 CI 的 Python 检查和测试通过，但可选 Agent 打包检查失败，导致迁移和 Compose 阶段跳过；打包命令已修正，需查看后续 Actions 结果。没有测试环境部署，所有人的人工验收仍待完成。
+公开 GitHub 仓库已创建。GitHub Actions 已通过代码检查、13 条测试、空库迁移、Compose 测试环境和冒烟流程。生产环境未部署，所有人的人工验收仍待完成。
 
 ## 当前风险与应对
 
