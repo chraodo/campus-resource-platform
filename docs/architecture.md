@@ -2,7 +2,7 @@
 
 ## 当前实现
 
-当前项目使用模块化单体：一个 FastAPI 服务提供版本化业务接口，浏览器使用原生 HTML/CSS/JavaScript；SQLAlchemy 管理数据访问，Alembic 管理数据库结构；本地开发默认 SQLite，Compose 环境使用 PostgreSQL。定时 worker 与 API 分开运行，共用同一个数据库。邮件由 SMTP 配置控制，未配置时只保留站内通知。
+浏览器访问 FastAPI 主服务。M2 终审通过 HTTP 调用独立的 D 资源进程，其他业务复用同一应用的领域逻辑和数据库。SQLite 用于本机开发，Compose 使用 PostgreSQL；Alembic 维护表结构。定时 worker 独立运行，配置 SMTP 后投递邮件。
 
 ```mermaid
 flowchart LR
@@ -14,7 +14,8 @@ flowchart LR
   API --> M3[M3 物业工单]
   API --> D[D 公共服务：账号权限、空间、通知、审计]
   M1 --> Holds[可追溯资源占用]
-  M2 --> Holds
+  M2 -->|HTTP PUT| Resource[D 资源服务]
+  Resource --> Holds
   M3 --> Holds
   Holds --> DB[(SQLite / PostgreSQL)]
   D --> DB
@@ -35,7 +36,13 @@ flowchart LR
 | Web | 学生页面、审批/维修台、管理页和签到屏幕 | `demo/` |
 | 数据迁移 | 从空库创建与演进表结构 | `backend/migrations/` |
 
-资源占用存在唯一共享记录 `ResourceHold`：写入模块和来源单号。M2 只有最终审批通过才创建整间教室的占用；M3 只有工单进入维修中才下架相关空间；M1 查询时汇总占用并返回原因。各业务处理释放时按原来源单号撤销记录。
+M1 个人预约写入 `Reservation`，M2 和 M3 写入带模块和来源单号的 `ResourceHold`。M2 只有最终审批通过才创建整间教室的占用；M3 只有工单进入维修中才下架相关空间；M1 查询时汇总占用并返回原因。各业务处理释放时按原来源单号撤销记录。
+
+### M2 终审网络契约
+
+主服务收到二级通过请求后释放本地事务，再用经配置的内部地址调用 `PUT /internal/v1/classroom-holds/{申请单号}`。资源进程用当前用户的会话凭据重新鉴权，在一个事务内锁定申请和房间，复查开放时段、冲突和审批期限，写入终审记录、整室占用、通知及审计。两侧使用同一版代码和同一数据库。取消已批准的申请时，现有取消事务根据来源单号释放占用。部署在受信的组内网络，跨主机传递凭据时配置 HTTPS。
+
+冲突返回 409，申请仍可处理。资源服务不可达或响应丢失返回 503，调用方先刷新状态，也可以用相同审批人和备注重试；已提交的终审只返回原结果。现场从 `docker compose logs -f resource` 观察 PUT 请求，用相同申请单号在座位查询中核对占用来源。
 
 ## 主要业务接口
 
@@ -45,7 +52,7 @@ flowchart LR
 | --- | --- | --- |
 | `GET /api/v1/seats` | M1 | 按日期、时间、时长及设备筛选座位和占用来源 |
 | `POST /api/v1/reservations` | M1 | 创建座位预约；支持幂等键 |
-| `GET /api/v1/me/reservations` | M1 | 查看本人预约和历史 |
+| `GET /api/v1/reservations` | M1 | 查看本人预约和历史 |
 | `POST /api/v1/reservations/{id}/check-in` | M1 | 用房间当日码签到 |
 | `POST /api/v1/classroom-applications` | M2 | 提交整室申请 |
 | `POST /api/v1/classroom-applications/{id}/decision` | M2 | 有权限的审批人做当前级别决定 |
