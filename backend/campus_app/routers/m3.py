@@ -24,30 +24,24 @@ router = APIRouter(prefix="/api/v1", tags=["M3 · 物业报修工单"])
 
 
 def _load_work_order(db: DbSession, work_order_id: str) -> WorkOrder:
-    row = db.scalar(
-        select(WorkOrder)
-        .options(
-            joinedload(WorkOrder.reporter),
-            joinedload(WorkOrder.assignee),
-            joinedload(WorkOrder.seat),
-            joinedload(WorkOrder.room),
-        )
-        .where(WorkOrder.id == work_order_id)
-        .with_for_update()
-    )
+    row = db.get(WorkOrder, work_order_id, with_for_update=True)
     if row is None:
         raise HTTPException(404, "没有找到该报修工单")
     return row
 
 
+def _commit_work_order(db: DbSession, row: WorkOrder) -> dict:
+    db.flush()
+    response = work_order_view(row)
+    db.commit()
+    return response
+
+
 @router.post("/work-orders", status_code=201)
 def report_fault(data: WorkOrderInput, db: DbSession, user: CurrentUser) -> dict:
     """Submit a fault report for one seat or one room."""
-    if not has_permission(db, user, "work_order:create"):
-        raise HTTPException(403, "当前账号没有上报故障的权限")
     row = create_work_order(db, user, data)
-    db.commit()
-    return work_order_view(_load_work_order(db, row.id))
+    return _commit_work_order(db, row)
 
 
 @router.get("/work-orders")
@@ -77,8 +71,7 @@ def cancel_report(work_order_id: str, db: DbSession, user: CurrentUser) -> dict:
     """Cancel an owned report before repair begins."""
     row = _load_work_order(db, work_order_id)
     cancel_work_order(db, user, row)
-    db.commit()
-    return work_order_view(_load_work_order(db, row.id))
+    return _commit_work_order(db, row)
 
 
 @router.post("/work-orders/{work_order_id}/assign")
@@ -117,8 +110,7 @@ def assign_work_order(
         row.id,
         f"work-order:{row.id}:assigned:{assignee.id}",
     )
-    db.commit()
-    return work_order_view(_load_work_order(db, row.id))
+    return _commit_work_order(db, row)
 
 
 @router.post("/work-orders/{work_order_id}/start")
@@ -128,8 +120,7 @@ def start_repair(work_order_id: str, db: DbSession, user: CurrentUser) -> dict:
         raise HTTPException(403, "只有维修人员可以开始维修")
     row = _load_work_order(db, work_order_id)
     result = start_work_order(db, user, row)
-    db.commit()
-    return work_order_view(_load_work_order(db, result.id))
+    return _commit_work_order(db, result)
 
 
 @router.post("/work-orders/{work_order_id}/resolve")
@@ -153,8 +144,7 @@ def resolve_repair(work_order_id: str, db: DbSession, user: CurrentUser) -> dict
         row.id,
         f"work-order:{row.id}:resolved",
     )
-    db.commit()
-    return work_order_view(_load_work_order(db, row.id))
+    return _commit_work_order(db, row)
 
 
 @router.post("/work-orders/{work_order_id}/accept")
@@ -179,8 +169,7 @@ def accept_repair(work_order_id: str, db: DbSession, user: CurrentUser) -> dict:
         row.id,
         f"work-order:{row.id}:accepted",
     )
-    db.commit()
-    return work_order_view(_load_work_order(db, row.id))
+    return _commit_work_order(db, row)
 
 
 @router.post("/work-orders/{work_order_id}/rating")
@@ -201,5 +190,4 @@ def rate_repair(
     row.rating = data.rating
     row.rating_comment = data.comment
     write_audit(db, user.id, "work_order.rated", "work_order", row.id, {"rating": data.rating})
-    db.commit()
-    return work_order_view(_load_work_order(db, row.id))
+    return _commit_work_order(db, row)

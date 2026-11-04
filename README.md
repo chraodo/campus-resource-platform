@@ -44,6 +44,8 @@ uv run pytest -q
 DATABASE_URL=sqlite:////tmp/campus-migration-check.db uv run alembic -c backend/alembic.ini upgrade head
 ```
 
+默认的业务测试使用独立 SQLite 文件。设置 `TEST_POSTGRES_URL` 为专用 PostgreSQL 测试库的 SQLAlchemy 连接串（使用 `postgresql+psycopg` 驱动）后，运行同一条 `uv run pytest -q` 即可复测。每个用例在新建的独立 schema 内从空库执行 Alembic 迁移，用毕移除该 schema；测试账号需要建 schema 权限。
+
 容器环境和 CI 配置见 `Dockerfile`、`compose.yaml`、`.github/workflows/ci.yml`。GitHub 仓库现为公开。GitHub Actions 已通过代码检查、13 条测试、空库迁移、Compose 测试环境和冒烟流程；[本次运行记录](https://github.com/yushu212/campus-resource-platform/actions/runs/41776105164)。生产部署尚未进行，不要把配置文件说成已部署。
 
 ## 汇报与分工材料

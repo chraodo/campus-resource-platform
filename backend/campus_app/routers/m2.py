@@ -27,8 +27,6 @@ def submit_application(
     user: CurrentUser,
 ) -> dict:
     """Submit a room request; a pending request does not block seats."""
-    if not has_permission(db, user, "classroom:create"):
-        raise HTTPException(403, "只有学生账号可以提交教室申请")
     row = create_classroom_application(db, user, data)
     db.commit()
     db.refresh(row)
@@ -72,16 +70,7 @@ def decide_application(
     """Approve the current stage or reject the application with a reason."""
     if not has_permission(db, user, "classroom:approve"):
         raise HTTPException(403, "只有审批人可以处理教室申请")
-    row = db.scalar(
-        select(ClassroomApplication)
-        .options(
-            joinedload(ClassroomApplication.applicant),
-            joinedload(ClassroomApplication.room),
-            joinedload(ClassroomApplication.approvals).joinedload(ApprovalRecord.approver),
-        )
-        .where(ClassroomApplication.id == application_id)
-        .with_for_update()
-    )
+    row = db.get(ClassroomApplication, application_id, with_for_update=True)
     if row is None:
         raise HTTPException(404, "没有找到该教室申请")
     result = decide_classroom_application(db, user, row, data.decision, data.comment)
@@ -97,11 +86,7 @@ def cancel_application(
     user: CurrentUser,
 ) -> dict:
     """Cancel an applicant's pending request or an approved booking."""
-    row = db.scalar(
-        select(ClassroomApplication)
-        .options(joinedload(ClassroomApplication.applicant), joinedload(ClassroomApplication.room))
-        .where(ClassroomApplication.id == application_id)
-    )
+    row = db.get(ClassroomApplication, application_id, with_for_update=True)
     if row is None:
         raise HTTPException(404, "没有找到本人申请")
     cancel_classroom_application(db, user, row)

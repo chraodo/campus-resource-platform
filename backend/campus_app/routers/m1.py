@@ -10,7 +10,14 @@ from sqlalchemy.orm import joinedload
 
 from campus_app.clock import now_local
 from campus_app.dependencies import CurrentUser, DbSession
-from campus_app.domain import create_reservation, find_seat_conflict, write_audit
+from campus_app.domain import cancel_reservation as cancel_owned_reservation
+from campus_app.domain import (
+    create_reservation,
+    expire_no_show,
+    find_seat_conflict,
+    room_hours_allow,
+    write_audit,
+)
 from campus_app.models import Reservation, Room, Seat
 from campus_app.rbac import has_permission
 from campus_app.schemas import CheckInInput, ReservationInput
@@ -63,7 +70,14 @@ def search_seats(
     seats = db.scalars(statement).unique().all()
     result = []
     for seat in seats:
-        conflict = find_seat_conflict(db, seat, start_at, end_at)
+        if room_hours_allow(seat.room, start_at, end_at):
+            conflict = find_seat_conflict(db, seat, start_at, end_at)
+        else:
+            conflict = {
+                "module": "D",
+                "source_id": seat.room_id,
+                "reason": f"该空间开放时间为 {seat.room.open_time}–{seat.room.close_time}",
+            }
         result.append(seat_view(seat, conflict))
     return {
         "date": booking_date.isoformat(),
@@ -83,8 +97,6 @@ def book_seat(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120),
 ) -> dict:
     """Create a reservation; the daily code is displayed at the room."""
-    if not has_permission(db, user, "reservation:create"):
-        raise HTTPException(403, "只有学生账号可以预约座位")
     row = create_reservation(db, user, data, idempotency_key)
     db.commit()
     db.refresh(row)
@@ -127,7 +139,7 @@ def check_in(
     user: CurrentUser,
 ) -> dict:
     """Check in the reservation owner with today's code from the room screen."""
-    row = db.get(Reservation, reservation_id)
+    row = db.get(Reservation, reservation_id, with_for_update=True)
     if row is None or (
         row.user_id != user.id and not has_permission(db, user, "reservation:manage_all")
     ):
@@ -142,12 +154,7 @@ def check_in(
         raise HTTPException(403, "签到码不正确，请核对预约房间屏幕上的今日编码")
     if now < row.start_at:
         raise HTTPException(409, f"预约开始时间为 {row.start_at:%H:%M}，请到时再签到")
-    from campus_app.config import CHECKIN_LATE_MINUTES
-
-    if now >= row.start_at + timedelta(minutes=CHECKIN_LATE_MINUTES):
-        row.status = "expired"
-        row.violation = True
-        write_audit(db, user.id, "reservation.no_show", "reservation", row.id)
+    if expire_no_show(db, row, now):
         db.commit()
         raise HTTPException(409, "签到时间已过，预约已按违约规则释放")
     row.status = "checked_in"
@@ -183,17 +190,7 @@ def cancel_reservation(
     user: CurrentUser,
 ) -> dict:
     """Cancel an upcoming reservation owned by the current student."""
-    row = db.get(Reservation, reservation_id)
-    if row is None or (
-        row.user_id != user.id and not has_permission(db, user, "reservation:manage_all")
-    ):
-        raise HTTPException(404, "没有找到本人预约")
-    if row.status != "confirmed":
-        raise HTTPException(409, "只有未签到的有效预约可以取消")
-    if row.user_id == user.id and not has_permission(db, user, "reservation:cancel_own"):
-        raise HTTPException(403, "当前账号没有取消预约的权限")
-    row.status = "cancelled"
-    write_audit(db, user.id, "reservation.cancelled", "reservation", row.id)
+    row = cancel_owned_reservation(db, user, reservation_id)
     db.commit()
     db.refresh(row)
     return reservation_view(row)

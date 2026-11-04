@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import Engine, create_engine, event
+from fastapi import Request
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from campus_app.config import DATABASE_URL
@@ -34,10 +35,18 @@ engine = _make_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
-def get_db() -> Generator[Session, None, None]:
+def begin_sqlite_write(db: Session) -> None:
+    """Acquire the SQLite writer slot before reading state used by a write."""
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(text("BEGIN IMMEDIATE"))
+
+
+def get_db(request: Request) -> Generator[Session, None, None]:
     """Yield a database session for one request."""
     session = SessionLocal()
     try:
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            begin_sqlite_write(session)
         yield session
     finally:
         session.close()

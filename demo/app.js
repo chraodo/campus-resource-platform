@@ -224,7 +224,7 @@
         : (seat.has_power ? '有电源' : '普通座位');
       return `<button class="seat-card ${seat.available ? 'available' : 'occupied'}" type="button" data-seat="${escapeHtml(seat.id)}" ${seat.available ? '' : 'disabled'}>
         <span><span class="seat-name">${escapeHtml(seat.label)}</span><span class="seat-detail">${escapeHtml(seat.room_name)} · ${escapeHtml(seat.area)}${seat.has_power ? ' · 电源' : ''}</span></span>
-        <span class="seat-state ${seat.available ? '' : 'blocked'}">${seat.available ? '可预约' : '已占用'}<br><span>${escapeHtml(detail)}</span></span>
+        <span class="seat-state ${seat.available ? '' : 'blocked'}">${seat.available ? '可预约' : (source?.module === 'D' ? '未开放' : '已占用')}<br><span>${escapeHtml(detail)}</span></span>
       </button>`;
     }).join('');
   }

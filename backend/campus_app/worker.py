@@ -24,8 +24,8 @@ from campus_app.config import (
     SMTP_STARTTLS,
     SMTP_USERNAME,
 )
-from campus_app.db import SessionLocal
-from campus_app.domain import notify, write_audit
+from campus_app.db import SessionLocal, begin_sqlite_write
+from campus_app.domain import expire_application, expire_no_show, notify, write_audit
 from campus_app.models import ClassroomApplication, Notification, Reservation, User, WorkOrder
 
 logger = logging.getLogger("campus.worker")
@@ -43,8 +43,14 @@ def process_due_events(now: datetime | None = None) -> dict[str, int]:
         "emails_failed": 0,
     }
     with SessionLocal() as db:
+        begin_sqlite_write(db)
         reservations = db.scalars(
-            select(Reservation).where(Reservation.status == "confirmed")
+            select(Reservation)
+            .where(
+                Reservation.status == "confirmed",
+                Reservation.start_at <= current + timedelta(minutes=15),
+            )
+            .with_for_update(skip_locked=True)
         ).all()
         for row in reservations:
             if current >= row.start_at - timedelta(minutes=15) and current < row.start_at:
@@ -81,44 +87,20 @@ def process_due_events(now: datetime | None = None) -> dict[str, int]:
                         late_key,
                     )
                     result["reminders"] += 1
-            if current >= row.start_at + timedelta(minutes=CHECKIN_LATE_MINUTES):
-                row.status = "expired"
-                row.violation = True
-                notify(
-                    db,
-                    row.user_id,
-                    "reservation",
-                    "未签到，预约已释放",
-                    f"预约 {row.id} 超过 15 分钟未签到，座位已释放并记录一次违约。",
-                    row.id,
-                    f"reservation:{row.id}:no-show",
-                )
-                write_audit(
-                    db, None, "reservation.no_show", "reservation", row.id, {"violation": True}
-                )
+            if expire_no_show(db, row, current):
                 result["no_shows"] += 1
 
         expired = db.scalars(
-            select(ClassroomApplication).where(
+            select(ClassroomApplication)
+            .where(
                 ClassroomApplication.status == "pending",
                 ClassroomApplication.timeout_at <= current,
             )
+            .with_for_update(skip_locked=True)
         ).all()
         for application in expired:
-            application.status = "expired"
-            notify(
-                db,
-                application.applicant_id,
-                "approval",
-                "教室申请超时撤销",
-                f"申请 {application.id} 超时未完成审批，已自动撤销；时段没有被占用。",
-                application.id,
-                f"classroom:{application.id}:timeout",
-            )
-            write_audit(
-                db, None, "classroom_application.expired", "classroom_application", application.id
-            )
-            result["expired_applications"] += 1
+            if expire_application(db, application, current):
+                result["expired_applications"] += 1
 
         overdue = db.scalars(
             select(WorkOrder).where(

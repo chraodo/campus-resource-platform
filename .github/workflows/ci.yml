@@ -31,7 +31,7 @@ jobs:
           uv run ruff check backend
           uv run ruff format --check backend
 
-      - name: Test business behavior
+      - name: Test business behavior on SQLite
         run: uv run pytest -q
 
       - name: Check the optional DSH bundle source
@@ -48,6 +48,11 @@ jobs:
         run: |
           docker compose --project-name campus-ci down --volumes --remove-orphans || true
           docker compose --project-name campus-ci up --detach --build
+
+      - name: Test business behavior on PostgreSQL
+        run: |
+          docker compose --project-name campus-ci run --rm --no-deps api \
+            sh -c 'export TEST_POSTGRES_URL="$DATABASE_URL"; exec uv run --frozen pytest -q'
 
       - name: Exercise the running test environment
         run: python3 scripts/smoke_check.py
