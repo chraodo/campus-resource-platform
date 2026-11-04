@@ -37,7 +37,7 @@ jobs:
       - name: Check the optional DSH bundle source
         run: |
           node --check optional-agent/dsh-campus-resource/index.js
-          npm pack --dry-run --prefix optional-agent/dsh-campus-resource
+          npm pack --dry-run ./optional-agent/dsh-campus-resource
 
       - name: Replay migrations from an empty database
         run: uv run alembic -c backend/alembic.ini upgrade head
