@@ -1,0 +1,1 @@
+"""Campus resource service application."""

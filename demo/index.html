@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f7f4">
+    <title>知栖 · 校园资源服务平台</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="知栖平台首页"><span class="brand-mark">知</span><span><strong>知栖</strong><small>校园资源服务平台</small></span></a>
+      <div id="header-user" class="header-user" hidden>
+        <span id="notification-count" class="notification-count">0</span>
+        <span id="user-badge" class="user-badge"></span>
+        <button id="logout-button" class="quiet-button" type="button">退出</button>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section id="login-view" class="login-layout">
+        <div class="login-intro">
+          <p class="eyebrow">CAMPUS RESOURCE SERVICE</p>
+          <h1>校园空间，<br>预约与维护一站完成。</h1>
+          <p>预约自习座位、申请整间教室，或提交物业报修。</p>
+          <div class="intro-tags"><span>M1 自习预约</span><span>M2 教室审批</span><span>M3 物业报修</span></div>
+        </div>
+        <form id="login-form" class="login-card">
+          <p class="eyebrow">WELCOME BACK</p>
+          <h2>登录平台</h2>
+          <label>账号<input id="username" name="username" autocomplete="username" required value="student"></label>
+          <label>密码<input id="password" name="password" type="password" autocomplete="current-password" required value="demo2026"></label>
+          <button class="primary-button full-width" type="submit">登录</button>
+          <p id="login-message" class="form-message" role="status"></p>
+          <details class="demo-accounts">
+            <summary>演示账号</summary>
+            <p>所有演示账号密码均为 <code>demo2026</code></p>
+            <div class="account-buttons">
+              <button type="button" data-demo-user="student">学生</button>
+              <button type="button" data-demo-user="approver1">一级审批</button>
+              <button type="button" data-demo-user="approver2">二级审批</button>
+              <button type="button" data-demo-user="repair">维修人员</button>
+              <button type="button" data-demo-user="admin">管理员</button>
+            </div>
+          </details>
+        </form>
+      </section>
+
+      <section id="app-view" hidden>
+        <div class="welcome-row">
+          <div><p class="eyebrow">RESOURCE DESK</p><h1>校园资源服务</h1><p class="muted">业务数据由服务端保存，模块状态保留来源记录。</p></div>
+          <div class="prototype-chip"><span></span>本地演示环境</div>
+        </div>
+        <nav id="main-nav" class="main-nav" aria-label="业务模块"></nav>
+        <div id="page-message" class="page-message" role="status" aria-live="polite"></div>
+
+        <section id="page-seats" class="content-panel" data-page="seats">
+          <div class="section-title"><div><p class="eyebrow">M1 · STUDY SPACE</p><h2>自习座位预约</h2></div><span id="booking-duration-hint" class="panel-hint">每次最多 4 小时，整点开始</span></div>
+          <form id="seat-search-form" class="form-grid search-grid">
+            <label>日期<input id="seat-date" type="date" required></label>
+            <label>开始时间<input id="seat-time" type="time" value="10:00" step="3600" required></label>
+            <label>时长<select id="seat-duration"><option value="1">1 小时</option><option value="2">2 小时</option><option value="3">3 小时</option><option value="4">4 小时</option></select></label>
+            <label>区域<select id="seat-area"><option value="">全部区域</option></select></label>
+            <label class="check-label"><input id="seat-power" type="checkbox"> 需要电源</label>
+            <button class="primary-button" type="submit">查找座位</button>
+          </form>
+          <div id="seat-summary" class="result-summary"></div>
+          <div id="seat-grid" class="seat-grid"></div>
+          <div class="legend"><span><i class="dot free"></i>可预约</span><span><i class="dot blocked"></i>时段占用</span><span>占用项显示 M1/M2/M3 来源和单号</span></div>
+          <div class="subsection-heading"><h3>我的预约</h3><button id="refresh-reservations" class="quiet-button" type="button">刷新</button></div>
+          <div id="reservation-list" class="record-list"></div>
+        </section>
+
+        <section id="page-classrooms" class="content-panel" data-page="classrooms" hidden>
+          <div class="section-title"><div><p class="eyebrow">M2 · ROOM APPROVAL</p><h2>整教室预约</h2></div><span class="panel-hint">审批通过后才占用全室座位</span></div>
+          <form id="classroom-form" class="form-grid">
+            <label>教室<select id="classroom-room" required></select></label>
+            <label>开始时间<input id="classroom-start" type="datetime-local" step="3600" required></label>
+            <label>结束时间<input id="classroom-end" type="datetime-local" step="3600" required></label>
+            <label class="wide-field">申请用途<input id="classroom-purpose" minlength="5" maxlength="500" required placeholder="例如：社团活动或课程研讨"></label>
+            <button class="primary-button" type="submit">提交审批申请</button>
+          </form>
+          <div class="subsection-heading"><h3>申请记录</h3><button id="refresh-classrooms" class="quiet-button" type="button">刷新</button></div>
+          <div id="classroom-list" class="record-list"></div>
+        </section>
+
+        <section id="page-repairs" class="content-panel" data-page="repairs" hidden>
+          <div class="section-title"><div><p class="eyebrow">M3 · PROPERTY SERVICE</p><h2>物业报修</h2></div><span class="panel-hint">维修中会自动下架相关座位</span></div>
+          <form id="work-order-form" class="form-grid">
+            <label>报修位置<select id="fault-target" required></select></label>
+            <label>紧急程度<select id="fault-severity"><option value="normal">普通</option><option value="low">较低</option><option value="high">较高</option><option value="urgent">紧急</option></select></label>
+            <label class="wide-field">问题标题<input id="fault-title" minlength="4" maxlength="160" required placeholder="例如：A03 座位电源无法使用"></label>
+            <label class="wide-field">问题描述<textarea id="fault-description" minlength="10" maxlength="3000" required rows="3" placeholder="描述故障现象和发生位置"></textarea></label>
+            <button class="primary-button" type="submit">提交报修</button>
+          </form>
+          <div class="subsection-heading"><h3>工单记录</h3><button id="refresh-work-orders" class="quiet-button" type="button">刷新</button></div>
+          <div id="work-order-list" class="record-list"></div>
+        </section>
+
+        <section id="page-operations" class="content-panel" data-page="operations" hidden>
+          <div class="section-title"><div><p class="eyebrow">OPERATIONS</p><h2>审批与维修工作台</h2></div><button id="refresh-operations" class="quiet-button" type="button">刷新工作台</button></div>
+          <div class="subsection-heading"><h3>待审批教室申请</h3></div>
+          <div id="approval-list" class="record-list"></div>
+          <div class="subsection-heading"><h3>待处理报修工单</h3></div>
+          <div id="repair-desk-list" class="record-list"></div>
+        </section>
+
+        <section id="page-admin" class="content-panel" data-page="admin" hidden>
+          <div class="section-title"><div><p class="eyebrow">D · SHARED SERVICES</p><h2>系统管理</h2></div><button id="refresh-admin" class="quiet-button" type="button">刷新资料</button></div>
+          <div id="admin-metrics" class="metric-grid"></div>
+          <div id="admin-grid" class="admin-grid">
+            <form id="room-form" class="compact-form"><h3>新增空间</h3><label>编号<input id="new-room-id" required></label><label>名称<input id="new-room-name" required></label><label>区域<input id="new-room-area" required></label><label>类型<select id="new-room-type"><option value="study">自习空间</option><option value="classroom">教室</option></select></label><label>开放范围<select id="new-room-scope"><option value="campus">全校开放</option><option value="department">院系专属</option></select></label><label>所属院系<input id="new-room-department" placeholder="专属空间填写院系"></label><div class="two-fields"><label>开放<input id="new-room-open" type="time" value="07:00" required></label><label>关闭<input id="new-room-close" type="time" value="22:00" required></label></div><label>座位数<input id="new-room-capacity" type="number" min="1" value="20" required></label><button class="primary-button" type="submit">创建空间</button></form>
+            <form id="seat-form" class="compact-form"><h3>新增座位</h3><label>座位编号<input id="new-seat-id" required></label><label>所属空间<select id="new-seat-room" required></select></label><label>显示名称<input id="new-seat-label" required></label><label class="check-label"><input id="new-seat-power" type="checkbox"> 有电源</label><label class="check-label"><input id="new-seat-accessible" type="checkbox"> 无障碍座位</label><button class="primary-button" type="submit">创建座位</button></form>
+            <form id="user-form" class="compact-form"><h3>新增账号</h3><label>登录名<input id="new-user-name" required></label><label>显示姓名<input id="new-user-display" required></label><label>通知邮箱（可选）<input id="new-user-email" type="email" autocomplete="email"></label><p class="record-meta">填写后可接收预约提醒；邮件服务需由部署环境配置。</p><label>所属院系<input id="new-user-department"></label><label>初始密码<input id="new-user-password" type="password" minlength="8" required></label><label>角色<select id="new-user-role" required></select></label><button class="primary-button" type="submit">创建账号</button></form>
+            <form id="role-form" class="compact-form"><h3>新增自定义角色</h3><label>角色编号<input id="new-role-code" pattern="[a-z][a-z0-9_]{1,31}" required placeholder="例如：room_manager"></label><label>显示名称<input id="new-role-name" minlength="2" required></label><label>权限编号（逗号分隔）<textarea id="new-role-permissions" rows="3" required placeholder="resource:manage, reservation:read_all"></textarea></label><button class="primary-button" type="submit">创建角色</button><details><summary>可用权限</summary><div id="permission-catalog" class="record-meta"></div></details></form>
+            <form id="settings-form" class="compact-form"><h3>预约规则</h3><label>每次最长预约<select id="max-booking-hours"><option value="1">1 小时</option><option value="2">2 小时</option><option value="3">3 小时</option><option value="4">4 小时</option></select></label><button class="primary-button" type="submit">保存参数</button><p class="record-meta">所有预约仍按整小时计算。</p></form>
+            <form id="screen-token-form" class="compact-form"><h3>自习室屏幕</h3><label>关联空间<select id="screen-room" required></select></label><p class="record-meta">为现场屏幕发放专用令牌，用于显示该空间每日签到码。</p><button class="primary-button" type="submit">生成屏幕令牌</button><div id="screen-token-created" class="token-created" hidden></div></form>
+          </div>
+          <div class="subsection-heading"><h3>账号与角色</h3></div><div id="user-list" class="record-list"></div>
+          <div class="subsection-heading"><h3>角色权限</h3></div><div id="role-list" class="record-list"></div>
+          <div class="subsection-heading"><h3>近期预约情况</h3></div><div id="admin-reservation-list" class="record-list"></div>
+          <div class="subsection-heading"><h3>最近操作记录</h3></div><div id="audit-list" class="record-list"></div>
+        </section>
+
+        <section id="page-account" class="content-panel" data-page="account" hidden>
+          <div class="section-title"><div><p class="eyebrow">ACCOUNT & INTEGRATION</p><h2>账号与 API 令牌</h2></div></div>
+          <p class="muted">如果小组决定实现任务书的自然语言 Agent，可为 DSH 插件创建个人令牌。令牌只在创建时显示一次，请按项目规则安全保存。</p>
+          <form id="token-form" class="inline-form"><label>令牌名称<input id="token-label" required value="DSH 校园助手"></label><button class="primary-button" type="submit">创建令牌</button></form>
+          <div id="token-created" class="token-created" hidden></div>
+          <div id="token-list" class="record-list"></div>
+          <div class="subsection-heading"><h3>通知</h3><button id="refresh-notifications" class="quiet-button" type="button">刷新</button></div>
+          <div id="notification-list" class="record-list"></div>
+        </section>
+
+        <footer class="page-footer"><span>知栖 · 校园资源服务平台</span><span id="environment-label">本地演示</span></footer>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

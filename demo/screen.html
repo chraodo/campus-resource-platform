@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f7f4">
+    <title>自习室签到屏幕 · 知栖</title>
+    <link rel="stylesheet" href="/screen.css">
+    <script src="/screen.js" defer></script>
+  </head>
+  <body>
+    <main class="screen-shell">
+      <p class="eyebrow">CAMPUS STUDY SPACE</p>
+      <h1 id="room-name">自习室签到</h1>
+      <p id="screen-date" class="screen-date"></p>
+      <section id="code-panel" class="code-panel" hidden>
+        <p>今日动态签到码</p>
+        <strong id="daily-code">--------</strong>
+        <small id="expires-at"></small>
+      </section>
+      <p id="screen-message" class="screen-message" role="status">正在连接屏幕服务…</p>
+      <form id="token-form" class="token-form" hidden>
+        <label>屏幕专用令牌<input id="screen-token" type="password" autocomplete="off" required></label>
+        <button type="submit">连接这间自习室</button>
+      </form>
+      <button id="change-token" class="quiet-button" type="button" hidden>更换屏幕令牌</button>
+      <footer>签到码每天更新；请在预约开始后 15 分钟内完成签到。</footer>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,61 @@
+name: CI and temporary test deployment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-and-test-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: 0.12.18
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Check Python style
+        run: |
+          uv run ruff check backend
+          uv run ruff format --check backend
+
+      - name: Test business behavior
+        run: uv run pytest -q
+
+      - name: Check the optional DSH bundle source
+        run: |
+          node --check optional-agent/dsh-campus-resource/index.js
+          npm pack --dry-run --prefix optional-agent/dsh-campus-resource
+
+      - name: Replay migrations from an empty database
+        run: uv run alembic -c backend/alembic.ini upgrade head
+        env:
+          DATABASE_URL: sqlite:////tmp/campus-migration-empty.db
+
+      - name: Build and start a fresh PostgreSQL test environment
+        run: |
+          docker compose --project-name campus-ci down --volumes --remove-orphans || true
+          docker compose --project-name campus-ci up --detach --build
+
+      - name: Exercise the running test environment
+        run: python3 scripts/smoke_check.py
+
+      - name: Show service logs after failure
+        if: failure()
+        run: docker compose --project-name campus-ci logs
+
+      - name: Remove temporary test environment
+        if: always()
+        run: docker compose --project-name campus-ci down --volumes --remove-orphans

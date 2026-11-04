@@ -1,0 +1,69 @@
+name: Manual production release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Reviewed Git tag to deploy (for example v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: self-hosted
+    env:
+      APP_ENV: production
+      APP_SECRET: ${{ secrets.APP_SECRET }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      CAMPUS_BACKUP_DIR: ${{ vars.CAMPUS_BACKUP_DIR }}
+      APP_PORT: ${{ vars.APP_PORT || '8000' }}
+      SEED_DEMO_DATA: "false"
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ vars.SMTP_FROM }}
+      SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS || 'true' }}
+      SMTP_SSL: ${{ vars.SMTP_SSL || 'false' }}
+    steps:
+      - name: Check out the reviewed release tag
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.release_tag }}
+          persist-credentials: false
+
+      - name: Check release and required production settings
+        run: |
+          case "${{ inputs.release_tag }}" in v*) ;; *) echo "A version tag beginning with v is required"; exit 1 ;; esac
+          test -n "$APP_SECRET"
+          test -n "$POSTGRES_PASSWORD"
+          test -n "$CAMPUS_BACKUP_DIR"
+          test "$(git describe --tags --exact-match HEAD)" = "${{ inputs.release_tag }}"
+
+      - name: Start database and save a backup
+        run: |
+          docker compose -f compose.yaml -f compose.prod.yaml up --detach db
+          for attempt in $(seq 1 60); do
+            if docker compose -f compose.yaml -f compose.prod.yaml exec -T db pg_isready -U campus -d campus; then break; fi
+            sleep 2
+          done
+          mkdir -p "$CAMPUS_BACKUP_DIR"
+          backup="$CAMPUS_BACKUP_DIR/campus-${{ inputs.release_tag }}-${{ github.run_id }}.sql.gz"
+          docker compose -f compose.yaml -f compose.prod.yaml exec -T db pg_dump -U campus -d campus | gzip > "$backup"
+          test -s "$backup"
+
+      - name: Build and deploy the approved release
+        run: docker compose -f compose.yaml -f compose.prod.yaml up --detach --build --remove-orphans
+
+      - name: Verify the deployed API health
+        run: |
+          for attempt in $(seq 1 60); do
+            if docker compose -f compose.yaml -f compose.prod.yaml exec -T api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"; then exit 0; fi
+            sleep 2
+          done
+          docker compose -f compose.yaml -f compose.prod.yaml logs api
+          exit 1

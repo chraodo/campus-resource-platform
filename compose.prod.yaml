@@ -1,0 +1,18 @@
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the production environment}
+
+  api:
+    environment:
+      APP_ENV: production
+      SEED_DEMO_DATA: "false"
+      APP_SECRET: ${APP_SECRET:?Set a random APP_SECRET in the production environment}
+      DATABASE_URL: postgresql+psycopg://campus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the production environment}@db:5432/campus
+
+  worker:
+    environment:
+      APP_ENV: production
+      SEED_DEMO_DATA: "false"
+      APP_SECRET: ${APP_SECRET:?Set a random APP_SECRET in the production environment}
+      DATABASE_URL: postgresql+psycopg://campus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the production environment}@db:5432/campus
