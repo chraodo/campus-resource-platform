@@ -15,9 +15,11 @@ services:
 
   api:
     build: .
-    command: ["sh", "-c", "uv run alembic -c backend/alembic.ini upgrade head && uv run uvicorn campus_app.main:app --app-dir backend --host 0.0.0.0 --port 8000"]
+    command: ["sh", "-c", "uv run --frozen --no-dev alembic -c backend/alembic.ini upgrade head && uv run --frozen --no-dev uvicorn campus_app.main:app --app-dir backend --host 0.0.0.0 --port 8000"]
     environment: &app-environment
       DATABASE_URL: postgresql+psycopg://campus:${POSTGRES_PASSWORD:-campus-local-dev-only}@db:5432/campus
+      APP_REVISION: ${APP_REVISION:-local}
+      RESOURCE_SERVICE_URL: http://resource:8001
       APP_SECRET: ${APP_SECRET:-local-development-only-change-me}
       APP_ENV: ${APP_ENV:-development}
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
@@ -37,6 +39,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      resource:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"
     healthcheck:
@@ -45,9 +49,22 @@ services:
       timeout: 3s
       retries: 12
 
+  resource:
+    build: .
+    command: ["uv", "run", "--frozen", "--no-dev", "uvicorn", "campus_app.resource_service:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "8001"]
+    environment: *app-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   worker:
     build: .
-    command: ["uv", "run", "python", "-m", "campus_app.worker"]
+    command: ["uv", "run", "--frozen", "--no-dev", "python", "-m", "campus_app.worker"]
     environment: *app-environment
     depends_on:
       api:

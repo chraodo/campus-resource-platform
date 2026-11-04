@@ -14,10 +14,10 @@ fi
 gzip -t "$backup_file"
 
 compose=(docker compose -f compose.yaml -f compose.prod.yaml)
-"${compose[@]}" stop api worker
+"${compose[@]}" stop api worker resource
 "${compose[@]}" exec -T db psql -U campus -d postgres -v ON_ERROR_STOP=1 \
   -c "DROP DATABASE IF EXISTS campus WITH (FORCE);" \
   -c "CREATE DATABASE campus OWNER campus;"
 gzip -dc "$backup_file" | "${compose[@]}" exec -T db psql -U campus -d campus -v ON_ERROR_STOP=1
-"${compose[@]}" up --detach api worker
+"${compose[@]}" up --detach resource api worker
 echo "Database restore completed. Verify API health and business data before reopening traffic."

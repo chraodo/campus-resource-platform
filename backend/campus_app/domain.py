@@ -129,6 +129,20 @@ def find_seat_conflict(
     exclude_reservation_id: str | None = None,
 ) -> dict | None:
     """Return the first active booking/hold that overlaps a seat time range."""
+    hold = db.scalar(
+        select(ResourceHold)
+        .where(
+            ResourceHold.active.is_(True),
+            ResourceHold.start_at < end_at,
+            (ResourceHold.module == "M3") | (ResourceHold.end_at > start_at),
+            ((ResourceHold.resource_type == "seat") & (ResourceHold.resource_id == seat.id))
+            | ((ResourceHold.resource_type == "room") & (ResourceHold.resource_id == seat.room_id)),
+        )
+        .order_by((ResourceHold.module == "M3").desc(), ResourceHold.id)
+        .limit(1)
+    )
+    if hold is not None:
+        return {"module": hold.module, "source_id": hold.source_id, "reason": hold.reason}
     reservation_query = select(Reservation).where(
         Reservation.seat_id == seat.id,
         Reservation.status.in_(ACTIVE_RESERVATION_STATES),
@@ -145,20 +159,6 @@ def find_seat_conflict(
             "reason": "座位已被个人预约",
         }
 
-    hold = db.scalar(
-        select(ResourceHold)
-        .where(
-            ResourceHold.active.is_(True),
-            ResourceHold.start_at < end_at,
-            ResourceHold.end_at > start_at,
-            ((ResourceHold.resource_type == "seat") & (ResourceHold.resource_id == seat.id))
-            | ((ResourceHold.resource_type == "room") & (ResourceHold.resource_id == seat.room_id)),
-        )
-        .order_by(ResourceHold.id)
-        .limit(1)
-    )
-    if hold is not None:
-        return {"module": hold.module, "source_id": hold.source_id, "reason": hold.reason}
     return None
 
 
@@ -184,7 +184,7 @@ def find_room_conflict(
         .where(
             ResourceHold.active.is_(True),
             ResourceHold.start_at < end_at,
-            ResourceHold.end_at > start_at,
+            (ResourceHold.module == "M3") | (ResourceHold.end_at > start_at),
             ((ResourceHold.resource_type == "room") & (ResourceHold.resource_id == room.id))
             | ((ResourceHold.resource_type == "seat") & (ResourceHold.resource_id.in_(seat_ids))),
         )
@@ -449,6 +449,8 @@ def decide_classroom_application(
         room = db.scalar(select(Room).where(Room.id == application.room_id).with_for_update())
         if room is None:
             raise HTTPException(404, "教室资料不存在")
+        if not room.active or not room_hours_allow(room, application.start_at, application.end_at):
+            raise HTTPException(409, "申请时段已不在当前开放时间内")
         conflict = find_room_conflict(db, room, application.start_at, application.end_at)
         if conflict:
             raise HTTPException(
@@ -558,7 +560,7 @@ def start_work_order(db: Session, user: User, work_order: WorkOrder) -> WorkOrde
             module="M3",
             source_id=work_order.id,
             start_at=now_local(),
-            end_at=now_local() + timedelta(days=3650),
+            end_at=datetime.max,
             reason="物业工单维修中",
             active=True,
         )

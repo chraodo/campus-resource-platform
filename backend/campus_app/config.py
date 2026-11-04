@@ -17,6 +17,8 @@ def _default_database_url() -> str:
 
 DATABASE_URL = os.getenv("DATABASE_URL", _default_database_url())
 APP_SECRET = os.getenv("APP_SECRET", "local-development-only-change-me")
+APP_REVISION = os.getenv("APP_REVISION", "local")
+RESOURCE_SERVICE_URL = os.getenv("RESOURCE_SERVICE_URL", "http://127.0.0.1:8001")
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")
 APP_ENV = os.getenv("APP_ENV", "development")
 SEED_DEMO_DATA = os.getenv("SEED_DEMO_DATA", "true").lower() in {"1", "true", "yes"}

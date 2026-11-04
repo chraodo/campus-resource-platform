@@ -17,11 +17,15 @@ from campus_app.security import token_hash
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-def get_current_user(request: Request, db: DbSession) -> User:
-    """Resolve an active user from a browser cookie or bearer token."""
+def request_credential(request: Request) -> str:
     authorization = request.headers.get("authorization", "")
     bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    raw_token = bearer or request.cookies.get("campus_session", "")
+    return bearer or request.cookies.get("campus_session", "")
+
+
+def get_current_user(request: Request, db: DbSession) -> User:
+    """Resolve an active user from a browser cookie or bearer token."""
+    raw_token = request_credential(request)
     if not raw_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
     credential = db.scalar(

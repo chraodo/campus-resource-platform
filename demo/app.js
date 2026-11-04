@@ -22,6 +22,8 @@
   let maxBookingHours = 4;
   let permissionCatalog = [];
   let seatResults = [];
+  let repeatSeatId = null;
+  let searchVersion = 0;
   let toastTimer;
 
   function hasPermission(permission) {
@@ -115,7 +117,10 @@
   function setPage(page) {
     $$('.content-panel').forEach((panel) => { panel.hidden = panel.dataset.page !== page; });
     $$('.nav-button').forEach((item) => item.classList.toggle('active', item.dataset.page === page));
-    if (page === 'seats') refreshSeatSearch();
+    if (page === 'seats') {
+      refreshSeatSearch();
+      refreshReservations();
+    }
     if (page === 'classrooms') refreshApplications();
     if (page === 'repairs') refreshWorkOrders();
     if (page === 'operations') refreshOperations();
@@ -169,6 +174,8 @@
     $('#new-seat-room').innerHTML = rooms.map((room) =>
       `<option value="${escapeHtml(room.id)}">${escapeHtml(room.name)}</option>`,
     ).join('');
+    $('#hours-room').innerHTML = $('#new-seat-room').innerHTML;
+    displayRoomHours();
     $('#screen-room').innerHTML = rooms.map((room) =>
       `<option value="${escapeHtml(room.id)}">${escapeHtml(room.name)}</option>`,
     ).join('');
@@ -180,7 +187,7 @@
     $('#fault-target').innerHTML = [
       '<optgroup label="座位">' + seatOptions.join('') + '</optgroup>',
       '<optgroup label="房间">' + rooms.map((room) =>
-        `<option value="room:${escapeHtml(room.id)}">房间 ${escapeHtml(room.name)}</option>`,
+        `<option value="room:${escapeHtml(room.id)}">整室（全部座位）· ${escapeHtml(room.name)}</option>`,
       ).join('') + '</optgroup>',
     ].join('');
   }
@@ -198,14 +205,19 @@
 
   async function refreshSeatSearch() {
     if (!currentUser) return;
+    const version = ++searchVersion;
+    $('#repeat-seat-panel').hidden = !repeatSeatId;
+    $('#repeat-seat-label').textContent = repeatSeatId ? `再次预约原座 ${repeatSeatId}` : '';
     const grid = $('#seat-grid');
     grid.innerHTML = emptyState('正在查询可预约座位…');
     try {
       const result = await api(`/api/v1/seats?${buildSeatQuery()}`);
-      seatResults = result.seats;
-      $('#seat-summary').innerHTML = `<span><strong>${result.available_count}</strong> 个座位当前可预约</span><span>${escapeHtml(result.start_at.replace('T', ' '))}–${escapeHtml(result.end_at.slice(-5))}</span>`;
+      if (version !== searchVersion) return;
+      seatResults = repeatSeatId ? result.seats.filter((seat) => seat.id === repeatSeatId) : result.seats;
+      $('#seat-summary').innerHTML = `<span><strong>${seatResults.filter((seat) => seat.available).length}</strong> 个座位当前可预约</span><span>${escapeHtml(result.start_at.replace('T', ' '))}–${escapeHtml(result.end_at.slice(-5))}</span>`;
       renderSeatGrid();
     } catch (error) {
+      if (version !== searchVersion) return;
       grid.innerHTML = emptyState(error.message);
       showMessage(error.message);
     }
@@ -214,7 +226,7 @@
   function renderSeatGrid() {
     const grid = $('#seat-grid');
     if (!seatResults.length) {
-      grid.innerHTML = emptyState('当前筛选条件下没有座位。');
+      grid.innerHTML = emptyState(repeatSeatId ? '原座已停用、不可见或不符合当前筛选。可选择其他时段或查看全部座位。' : '当前筛选条件下没有座位。');
       return;
     }
     grid.innerHTML = seatResults.map((seat) => {
@@ -240,7 +252,7 @@
             + button('输入屏幕今日码', 'check-in', row.id)
             + button('取消预约', 'cancel-reservation', row.id, '', true);
         }
-        actions += button('复用条件', 'reuse-reservation', row.id);
+        if (hasPermission('reservation:create') && row.user_id === currentUser.id) actions += button('再次预约原座', 'reuse-reservation', row.id);
         const meta = `${escapeHtml(row.id)} · ${escapeHtml(row.seat_id)} · ${escapeHtml(row.room_name)}`;
         return recordCard({
           title: `座位 ${row.seat_label} · ${timeRange(row.start_at, row.end_at)}`,
@@ -362,6 +374,7 @@
     $('#user-form').hidden = !canManageUsers;
     $('#role-form').hidden = !canManageUsers;
     $('#room-form').hidden = !canManageResources;
+    $('#hours-form').hidden = !canManageResources;
     $('#seat-form').hidden = !canManageResources;
     $('#screen-token-form').hidden = !canManageResources;
     $('#settings-form').hidden = !canConfigure;
@@ -483,6 +496,7 @@
   }
 
   async function activateSession(user) {
+    repeatSeatId = null;
     currentUser = user;
     $('#login-view').hidden = true;
     $('#app-view').hidden = false;
@@ -549,6 +563,11 @@
   ['#seat-date', '#seat-time', '#seat-duration', '#seat-area', '#seat-power'].forEach((selector) => {
     $(selector).addEventListener('change', refreshSeatSearch);
   });
+  $('#all-seats').addEventListener('click', () => {
+    repeatSeatId = null;
+    refreshSeatSearch();
+  });
+
   $('#seat-grid').addEventListener('click', async (event) => {
     const target = event.target.closest('[data-seat]');
     if (!target || target.disabled) return;
@@ -656,6 +675,25 @@
     } catch (error) { showMessage(error.message); }
   });
 
+  function displayRoomHours() {
+    const room = rooms.find((item) => item.id === $('#hours-room').value);
+    $('#hours-open').value = room?.open_time || '';
+    $('#hours-close').value = room?.close_time || '';
+  }
+
+  $('#hours-room').addEventListener('change', displayRoomHours);
+  $('#hours-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#hours-room').value;
+    try {
+      const updated = await api(`/api/v1/admin/rooms/${encodeURIComponent(id)}/hours`,
+        jsonOptions('PATCH', {open_time: $('#hours-open').value, close_time: $('#hours-close').value}));
+      rooms = rooms.map((room) => room.id === id ? updated : room);
+      displayRoomHours();
+      showMessage(`${updated.name} 开放时间已更新为 ${updated.open_time}–${updated.close_time}。`);
+    } catch (error) { showMessage(error.message); }
+  });
+
   $('#screen-token-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const roomId = $('#screen-room').value;
@@ -707,16 +745,22 @@
         const rows = await api('/api/v1/reservations');
         const row = rows.find((item) => item.id === id);
         if (!row) throw new Error('没有找到这条预约记录');
-        const start = new Date(row.start_at);
+        let start = new Date(row.start_at);
         const now = new Date();
-        if (start <= now) start.setDate(now.getDate() + 1);
+        if (start <= now) {
+          const hour = start.getHours();
+          start = new Date(now);
+          start.setDate(start.getDate() + 1);
+          start.setHours(hour, 0, 0, 0);
+        }
+        repeatSeatId = row.seat_id;
         $('#seat-date').value = localDate(start);
         $('#seat-time').value = `${String(start.getHours()).padStart(2, '0')}:00`;
-        $('#seat-duration').value = String(row.duration_hours);
+        $('#seat-duration').value = String(Math.min(row.duration_hours, maxBookingHours));
         $('#seat-area').value = '';
         $('#seat-power').checked = false;
         setPage('seats');
-        showMessage(`已复用座位 ${row.seat_id} 和时长 ${row.duration_hours} 小时，时间调整到可选的未来日期。`);
+        showMessage(`已定位原座 ${row.seat_id}，请核对日期和时长后确认。`);
       } else if (action === 'room-info') {
         const result = await api(`/api/v1/reservations/${encodeURIComponent(id)}/checkin-code`);
         window.alert(`请到 ${result.room_name} 查看屏幕上的今日签到码。屏幕码每天更新，只能现场获取。`);

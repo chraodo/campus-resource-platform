@@ -54,11 +54,14 @@ class ClassroomApplicationInput(BaseModel):
     purpose: str = Field(min_length=5, max_length=500)
 
 
-class ApprovalInput(BaseModel):
+class FinalApprovalInput(BaseModel):
+    comment: str = Field(default="", max_length=500)
+
+
+class ApprovalInput(FinalApprovalInput):
     """Approve or reject one pending classroom-application stage."""
 
     decision: str = Field(pattern="^(approve|reject)$")
-    comment: str = Field(default="", max_length=500)
 
 
 class WorkOrderInput(BaseModel):
@@ -90,7 +93,18 @@ class WorkOrderRatingInput(BaseModel):
     comment: str = Field(default="", max_length=500)
 
 
-class RoomInput(BaseModel):
+class RoomHoursInput(BaseModel):
+    open_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    close_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+    @model_validator(mode="after")
+    def ordered_hours(self):
+        if self.open_time >= self.close_time:
+            raise ValueError("开放时间要早于关闭时间")
+        return self
+
+
+class RoomInput(RoomHoursInput):
     """Room master-data fields managed by an administrator."""
 
     id: str = Field(min_length=2, max_length=40)
@@ -100,8 +114,6 @@ class RoomInput(BaseModel):
     access_scope: str = Field(default="campus", pattern="^(campus|department)$")
     department_id: str | None = Field(default=None, max_length=120)
     capacity: int = Field(ge=1, le=1000)
-    open_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    close_time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
     @model_validator(mode="after")
     def department_scope_requires_department(self) -> RoomInput:

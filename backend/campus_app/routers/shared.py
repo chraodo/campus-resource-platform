@@ -35,6 +35,7 @@ from campus_app.schemas import (
     RoleCreateInput,
     RoleInput,
     RoleUpdateInput,
+    RoomHoursInput,
     RoomInput,
     SeatInput,
     UserCreateInput,
@@ -483,13 +484,32 @@ def create_room(data: RoomInput, db: DbSession, user: CurrentUser) -> dict:
         raise HTTPException(403, "只有管理员可以新增空间")
     if db.get(Room, data.id):
         raise HTTPException(409, "空间编号已存在")
-    if data.open_time >= data.close_time:
-        raise HTTPException(422, "开放时间要早于关闭时间")
     row = Room(**data.model_dump())
     db.add(row)
     write_audit(db, user.id, "room.created", "room", row.id)
     db.commit()
     return room_view(row)
+
+
+@router.patch("/admin/rooms/{room_id}/hours")
+def change_room_hours(room_id: str, data: RoomHoursInput, db: DbSession, user: CurrentUser) -> dict:
+    if not has_permission(db, user, "resource:manage"):
+        raise HTTPException(403, "没有空间管理权限")
+    room = db.get(Room, room_id, with_for_update=True)
+    if room is None:
+        raise HTTPException(404, "空间不存在")
+    previous = {"open_time": room.open_time, "close_time": room.close_time}
+    room.open_time, room.close_time = data.open_time, data.close_time
+    write_audit(
+        db,
+        user.id,
+        "room.hours_changed",
+        "room",
+        room_id,
+        {"from": previous, "to": data.model_dump()},
+    )
+    db.commit()
+    return room_view(room)
 
 
 @router.post("/admin/seats", status_code=201)

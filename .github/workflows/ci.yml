@@ -2,7 +2,6 @@ name: CI and temporary test deployment
 
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -31,8 +30,12 @@ jobs:
           uv run ruff check backend
           uv run ruff format --check backend
 
-      - name: Test business behavior on SQLite
-        run: uv run pytest -q
+      - name: Test business behavior and browser flows on SQLite
+        env:
+          RUN_BROWSER_TESTS: "1"
+        run: |
+          uv run playwright install --with-deps chromium
+          uv run pytest -q
 
       - name: Check the optional DSH bundle source
         run: |
@@ -64,3 +67,30 @@ jobs:
       - name: Remove temporary test environment
         if: always()
         run: docker compose --project-name campus-ci down --volumes --remove-orphans
+
+
+  deploy-group-test:
+    needs: quality-and-test-environment
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.ENABLE_GROUP_TEST_DEPLOY == 'true'
+    runs-on: [self-hosted, campus-staging]
+    environment: staging
+    concurrency:
+      group: campus-staging-deploy
+      cancel-in-progress: false
+    env:
+      COMPOSE_PROJECT_NAME: campus-staging
+      APP_PORT: ${{ vars.APP_PORT || '8100' }}
+      APP_SECRET: ${{ secrets.APP_SECRET }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      APP_REVISION: ${{ github.sha }}
+      SEED_DEMO_DATA: "true"
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Deploy the tested commit and check the running revision
+        shell: bash
+        run: |
+          test -n "$APP_SECRET" && test -n "$POSTGRES_PASSWORD" || exit 1
+          docker compose up --build --detach --wait
+          docker compose exec -T api python -c 'import json, os, urllib.request; assert json.load(urllib.request.urlopen("http://127.0.0.1:8000/health"))["revision"] == os.environ["APP_REVISION"]'

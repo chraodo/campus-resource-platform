@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import os
+import socket
+import threading
+import time
 from collections.abc import Generator
+from contextlib import contextmanager
 from uuid import uuid4
 
 import pytest
+import uvicorn
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
@@ -19,6 +24,34 @@ from campus_app.db import _make_engine
 from campus_app.main import app
 from campus_app.models import Room, Seat, User
 from campus_app.security import hash_password
+
+
+@contextmanager
+def serve_http(asgi_app):
+    """Serve the actual ASGI app over a loopback TCP port selected by the OS."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        server = uvicorn.Server(uvicorn.Config(asgi_app, log_level="error", ws="none"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        thread.start()
+        try:
+            deadline = time.monotonic() + 10
+            while not server.started:
+                if not thread.is_alive() or time.monotonic() >= deadline:
+                    raise RuntimeError("Test HTTP service failed to start")
+                time.sleep(0.01)
+            yield f"http://127.0.0.1:{sock.getsockname()[1]}"
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10)
+
+
+@pytest.fixture(scope="session")
+def resource_url():
+    from campus_app.resource_service import app as resource_app
+
+    with serve_http(resource_app) as url:
+        yield url
 
 
 @pytest.fixture
@@ -43,9 +76,10 @@ def database_url(tmp_path):
 
 @pytest.fixture
 def system(
-    monkeypatch, database_url
+    monkeypatch, database_url, resource_url
 ) -> Generator[tuple[TestClient, sessionmaker[Session]], None, None]:
     """Exercise the real request dependency and schema built by the production migrations."""
+    monkeypatch.setattr("campus_app.config.RESOURCE_SERVICE_URL", resource_url)
     monkeypatch.setattr("campus_app.main.SEED_DEMO_DATA", False)
     monkeypatch.setattr("campus_app.config.DATABASE_URL", database_url)
     config = Config()

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from campus_app.dependencies import CurrentUser, DbSession
+from campus_app.dependencies import CurrentUser, DbSession, request_credential
 from campus_app.domain import (
     cancel_classroom_application,
     create_classroom_application,
@@ -14,6 +14,7 @@ from campus_app.domain import (
 )
 from campus_app.models import ApprovalRecord, ClassroomApplication
 from campus_app.rbac import has_permission
+from campus_app.resource_client import acquire_classroom_hold
 from campus_app.schemas import ApprovalInput, ClassroomApplicationInput
 from campus_app.views import application_view
 
@@ -64,6 +65,7 @@ def list_applications(
 def decide_application(
     application_id: str,
     data: ApprovalInput,
+    request: Request,
     db: DbSession,
     user: CurrentUser,
 ) -> dict:
@@ -73,6 +75,14 @@ def decide_application(
     row = db.get(ClassroomApplication, application_id, with_for_update=True)
     if row is None:
         raise HTTPException(404, "没有找到该教室申请")
+    if (
+        data.decision == "approve"
+        and row.current_stage == 2
+        and row.status in {"pending", "approved"}
+    ):
+        # Release both the application lock and SQLite writer slot before the remote transaction.
+        db.rollback()
+        return acquire_classroom_hold(application_id, data.comment, request_credential(request))
     result = decide_classroom_application(db, user, row, data.decision, data.comment)
     db.commit()
     db.refresh(result)

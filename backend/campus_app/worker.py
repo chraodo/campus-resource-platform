@@ -64,7 +64,7 @@ def process_due_events(now: datetime | None = None) -> dict[str, int]:
                         row.user_id,
                         "reservation",
                         "座位预约即将开始",
-                        f"座位 {row.seat_id} 将于 15 分钟后开始，请准备签到。",
+                        f"座位 {row.seat_id} 预约将于 {row.start_at:%H:%M} 开始，请准备签到。",
                         row.id,
                         before_key,
                     )
@@ -82,7 +82,7 @@ def process_due_events(now: datetime | None = None) -> dict[str, int]:
                         row.user_id,
                         "reservation",
                         "请尽快签到",
-                        f"座位 {row.seat_id} 已开始预约，请尽快签到；15 分钟后未签到将自动释放。",
+                        f"座位 {row.seat_id} 已开始预约，请在 {(row.start_at + timedelta(minutes=CHECKIN_LATE_MINUTES)):%H:%M} 前签到，到期释放。",
                         row.id,
                         late_key,
                     )
