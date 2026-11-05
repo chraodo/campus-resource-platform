@@ -5,6 +5,8 @@ FDU工程伦理小组-29作业
 
 [课程项目变更与验收报告](docs/课程项目变更与验收报告.md) 汇总本次修复、双数据库验证、复跑方法和小组待办。
 
+需求索引见 [需求基线](docs/requirements.md)，课程任务书拆解见 [详细需求文档](docs/requirements-detailed.md)，按当前产品实现展开的 [产品需求规格说明书](docs/校园资源平台需求规格说明书.md)，当前架构提案见 [系统结构](docs/architecture.md)，共享数据的实体、权限、冲突规则和变更流程见 [共享信息约束与管理](docs/shared-data-governance.md)。
+
 ## 现在能演示什么
 
 - 学生登录后查找和预约座位，查看历史、复用条件、签到或取消。
@@ -74,10 +76,10 @@ campus-resource-platform/
 ├── backend/migrations/           # Alembic 数据库迁移
 ├── backend/tests/                # 业务行为/API 集成测试
 ├── demo/                         # 浏览器界面与房间签到屏幕
-├── docs/                         # 需求、架构、伦理、分工与交付记录
+├── docs/                         # 需求、架构、共享数据治理、伦理、分工与交付记录
 ├── optional-agent/               # 附加 DSH 插件源码（未安装或运行）
 ├── scripts/                      # 冒烟检查与回滚辅助
-├── compose.yaml                  # 本地 PostgreSQL + API + worker
+├── compose.yaml                  # 本地 PostgreSQL + API + D 资源服务 + worker
 └── .github/workflows/            # CI、测试环境启动和人工审批发布模板
 ```
 

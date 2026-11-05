@@ -1,5 +1,7 @@
 # 需求基线与实现状态
 
+本页是任务书需求的状态索引。需要逐项评审和验收的详细功能、角色、业务约束及工程要求见 [详细需求基线](requirements-detailed.md)。共享实体的字段含义、访问权限和变更治理见 [共享信息约束与管理](shared-data-governance.md)。
+
 依据课程任务书整理。本文是供小组确认的可追踪清单，自动化测试通过不等于组员验收或老师批准。任务书中尚未写明的政策留作讨论，不在代码中假装已经取得校方结论。
 
 ## 核心范围
@@ -15,7 +17,7 @@
 | D-01 | 账号、角色和权限控制 | 已实现 cookie 会话、个人 API token、可配置角色及权限校验 | `routers/auth.py`、`rbac.py`；越权测试 |
 | D-02 | 共用空间目录、通知和审计 | 已实现统一房间/座位目录、站内通知、可选 SMTP 投递和审计记录 | `models.py`、`routers/shared.py`、`worker.py`；通知和审计测试 |
 | INT-01 | M2/M3 对 M1 的占用要有来源并可追溯 | 已实现 `ResourceHold`，座位查询返回模块和来源单号；维修验收或教室取消释放原占用 | `domain.py`、`views.py`；跨模块行为测试 |
-| ENG-01 | 规则、提交/PR 审查、自动检查与测试环境、人工批准生产、迁移和可回退发布 | 公开 GitHub 仓库已创建；CI 与临时 Compose 测试环境通过；组员人工审查待完成，生产发布模板尚未运行或部署 | `AGENTS.md`、迁移目录、`.github/workflows/`、`docs/deployment.md` |
+| ENG-01 | 规则、提交/PR 审查、自动检查与测试环境、人工批准生产、迁移和可回退发布 | 旧版本 CI 曾通过；PR #1 当前 head 尚无可见检查或 review；生产发布模板尚未运行或部署 | `AGENTS.md`、迁移目录、`.github/workflows/`、`docs/deployment.md` |
 | ENG-02 | 测试证明业务行为，能从空库迁移；种子数据可脚本重复执行 | 行为测试和迁移脚本已实现；每次从临时空 SQLite 执行迁移；种子数据仅创建一次；需由组员复核标准与结果 | `backend/tests/`、`backend/campus_app/seed.py`、`scripts/` |
 
 ### 本轮验收如何复跑
