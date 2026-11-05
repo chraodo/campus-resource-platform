@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from campus_app.config import APP_ENV, APP_SECRET, PROJECT_ROOT, SEED_DEMO_DATA
+from campus_app.config import APP_ENV, APP_REVISION, APP_SECRET, PROJECT_ROOT, SEED_DEMO_DATA
 from campus_app.db import engine
 from campus_app.routers import agent, auth, m1, m2, m3, shared
 from campus_app.seed import seed_demo_data
@@ -45,7 +45,7 @@ def health() -> dict[str, str]:
     """Expose a lightweight health signal for local and container checks."""
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
-    return {"status": "ok", "service": "campus-resource-platform"}
+    return {"status": "ok", "service": "campus-resource-platform", "revision": APP_REVISION}
 
 
 app.mount("/", StaticFiles(directory=PROJECT_ROOT / "demo", html=True), name="web")

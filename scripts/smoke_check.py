@@ -77,11 +77,7 @@ def main() -> int:
     repeated_status, repeated = call(
         opener, "/api/v1/reservations", booking, method="POST", headers=headers
     )
-    if (
-        created_status != 201
-        or repeated_status != 201
-        or created["id"] != repeated["id"]
-    ):
+    if created_status != 201 or repeated_status != 201 or created["id"] != repeated["id"]:
         print("Booking idempotency check failed", file=sys.stderr)
         return 1
 
@@ -96,7 +92,48 @@ def main() -> int:
         print(f"Expected a conflict, got HTTP {conflict_status}", file=sys.stderr)
         return 1
 
-    print("Smoke check passed: login, seat search, idempotency, and conflict rejection")
+    room_request = {
+        "room_id": "C201",
+        "purpose": "CI integration check",
+        "start_at": f"{tomorrow}T15:00:00",
+        "end_at": f"{tomorrow}T16:00:00",
+    }
+    status, application = call(
+        opener, "/api/v1/classroom-applications", room_request, method="POST"
+    )
+    if status != 201:
+        raise RuntimeError(f"Classroom submission failed: {status}")
+    aid = application["id"]
+    for approver in ("approver1", "approver2"):
+        status, _ = call(
+            opener,
+            "/api/v1/auth/login",
+            {"username": approver, "password": DEMO_PASSWORD},
+            method="POST",
+        )
+        if status != 200:
+            raise RuntimeError(f"{approver} login failed: {status}")
+        status, _ = call(
+            opener,
+            f"/api/v1/classroom-applications/{aid}/decision",
+            {"decision": "approve"},
+            method="POST",
+        )
+        if status != 200:
+            raise RuntimeError(f"{approver} decision failed: {status}")
+        status, result = call(
+            opener, f"/api/v1/seats?date={tomorrow}&start_time=15:00&duration_hours=1"
+        )
+        seats = [r for r in result["seats"] if r["room_id"] == "C201"]
+        if status != 200 or not seats:
+            raise RuntimeError("Classroom seats unavailable for smoke check")
+        if approver == "approver1" and not all(r["available"] for r in seats):
+            raise RuntimeError("Stage one unexpectedly occupied the room")
+        if approver == "approver2" and not all(
+            not r["available"] and r["blocked_by"]["source_id"] == aid for r in seats
+        ):
+            raise RuntimeError("HTTP approval did not lock all classroom seats")
+    print(f"Smoke check passed: M1 booking and M2 -> D -> M1 whole-room hold {aid}")
     return 0
 
 

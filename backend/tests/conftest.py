@@ -2,48 +2,93 @@
 
 from __future__ import annotations
 
+import os
+import socket
+import threading
+import time
 from collections.abc import Generator
+from contextlib import contextmanager
+from uuid import uuid4
 
 import pytest
+import uvicorn
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.schema import CreateSchema, DropSchema
 
-from campus_app.db import Base
-from campus_app.dependencies import get_db
+from campus_app.db import _make_engine
 from campus_app.main import app
 from campus_app.models import Room, Seat, User
 from campus_app.security import hash_password
 
 
-@pytest.fixture
-def system(monkeypatch) -> Generator[tuple[TestClient, sessionmaker[Session]], None, None]:
-    """Provide a fresh in-memory SQLite database and a browser client."""
-    monkeypatch.setattr("campus_app.main.SEED_DEMO_DATA", False)
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-
-    @event.listens_for(engine, "connect")
-    def enable_foreign_keys(connection, _record) -> None:  # type: ignore[no-untyped-def]
-        cursor = connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
-    Base.metadata.create_all(engine)
-    testing_sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-
-    def override_get_db() -> Generator[Session, None, None]:
-        db = testing_sessions()
+@contextmanager
+def serve_http(asgi_app):
+    """Serve the actual ASGI app over a loopback TCP port selected by the OS."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        server = uvicorn.Server(uvicorn.Config(asgi_app, log_level="error", ws="none"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        thread.start()
         try:
-            yield db
+            deadline = time.monotonic() + 10
+            while not server.started:
+                if not thread.is_alive() or time.monotonic() >= deadline:
+                    raise RuntimeError("Test HTTP service failed to start")
+                time.sleep(0.01)
+            yield f"http://127.0.0.1:{sock.getsockname()[1]}"
         finally:
-            db.close()
+            server.should_exit = True
+            thread.join(timeout=10)
 
-    app.dependency_overrides[get_db] = override_get_db
+
+@pytest.fixture(scope="session")
+def resource_url():
+    from campus_app.resource_service import app as resource_app
+
+    with serve_http(resource_app) as url:
+        yield url
+
+
+@pytest.fixture
+def database_url(tmp_path):
+    """Use a private SQLite file or a new schema in the supplied PostgreSQL test DB."""
+    postgres = os.getenv("TEST_POSTGRES_URL")
+    if not postgres:
+        yield f"sqlite:///{(tmp_path / 'campus.db').as_posix()}"
+        return
+    schema = f"campus_test_{uuid4().hex}"
+    admin = create_engine(postgres)
+    with admin.begin() as conn:
+        conn.execute(CreateSchema(schema))
+    try:
+        scoped = make_url(postgres).update_query_dict({"options": f"-csearch_path={schema}"})
+        yield scoped.render_as_string(hide_password=False)
+    finally:
+        with admin.begin() as conn:
+            conn.execute(DropSchema(schema, cascade=True))
+        admin.dispose()
+
+
+@pytest.fixture
+def system(
+    monkeypatch, database_url, resource_url
+) -> Generator[tuple[TestClient, sessionmaker[Session]], None, None]:
+    """Exercise the real request dependency and schema built by the production migrations."""
+    monkeypatch.setattr("campus_app.config.RESOURCE_SERVICE_URL", resource_url)
+    monkeypatch.setattr("campus_app.main.SEED_DEMO_DATA", False)
+    monkeypatch.setattr("campus_app.config.DATABASE_URL", database_url)
+    config = Config()
+    config.set_main_option("script_location", "backend/migrations")
+    command.upgrade(config, "head")
+    engine = _make_engine(database_url)
+    testing_sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    monkeypatch.setattr("campus_app.db.SessionLocal", testing_sessions)
+    monkeypatch.setattr("campus_app.worker.SessionLocal", testing_sessions)
     with testing_sessions() as db:
         db.add_all(
             [
@@ -100,7 +145,6 @@ def system(monkeypatch) -> Generator[tuple[TestClient, sessionmaker[Session]], N
 
     with TestClient(app) as client:
         yield client, testing_sessions
-    app.dependency_overrides.clear()
     engine.dispose()
 
 

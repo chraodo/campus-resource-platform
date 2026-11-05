@@ -11,7 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from campus_app.clock import now_local
-from campus_app.config import APPROVAL_TIMEOUT_HOURS, SMTP_FROM, SMTP_HOST, WORK_ORDER_SLA_HOURS
+from campus_app.config import (
+    APPROVAL_TIMEOUT_HOURS,
+    CHECKIN_LATE_MINUTES,
+    SMTP_FROM,
+    SMTP_HOST,
+    WORK_ORDER_SLA_HOURS,
+)
 from campus_app.models import (
     ApiCredential,
     ApprovalRecord,
@@ -123,6 +129,20 @@ def find_seat_conflict(
     exclude_reservation_id: str | None = None,
 ) -> dict | None:
     """Return the first active booking/hold that overlaps a seat time range."""
+    hold = db.scalar(
+        select(ResourceHold)
+        .where(
+            ResourceHold.active.is_(True),
+            ResourceHold.start_at < end_at,
+            (ResourceHold.module == "M3") | (ResourceHold.end_at > start_at),
+            ((ResourceHold.resource_type == "seat") & (ResourceHold.resource_id == seat.id))
+            | ((ResourceHold.resource_type == "room") & (ResourceHold.resource_id == seat.room_id)),
+        )
+        .order_by((ResourceHold.module == "M3").desc(), ResourceHold.id)
+        .limit(1)
+    )
+    if hold is not None:
+        return {"module": hold.module, "source_id": hold.source_id, "reason": hold.reason}
     reservation_query = select(Reservation).where(
         Reservation.seat_id == seat.id,
         Reservation.status.in_(ACTIVE_RESERVATION_STATES),
@@ -139,20 +159,6 @@ def find_seat_conflict(
             "reason": "座位已被个人预约",
         }
 
-    hold = db.scalar(
-        select(ResourceHold)
-        .where(
-            ResourceHold.active.is_(True),
-            ResourceHold.start_at < end_at,
-            ResourceHold.end_at > start_at,
-            ((ResourceHold.resource_type == "seat") & (ResourceHold.resource_id == seat.id))
-            | ((ResourceHold.resource_type == "room") & (ResourceHold.resource_id == seat.room_id)),
-        )
-        .order_by(ResourceHold.id)
-        .limit(1)
-    )
-    if hold is not None:
-        return {"module": hold.module, "source_id": hold.source_id, "reason": hold.reason}
     return None
 
 
@@ -178,7 +184,7 @@ def find_room_conflict(
         .where(
             ResourceHold.active.is_(True),
             ResourceHold.start_at < end_at,
-            ResourceHold.end_at > start_at,
+            (ResourceHold.module == "M3") | (ResourceHold.end_at > start_at),
             ((ResourceHold.resource_type == "room") & (ResourceHold.resource_id == room.id))
             | ((ResourceHold.resource_type == "seat") & (ResourceHold.resource_id.in_(seat_ids))),
         )
@@ -196,7 +202,11 @@ def create_reservation(
     idempotency_key: str | None = None,
 ) -> Reservation:
     """Create one conflict-free seat booking; check-in codes belong to room screens."""
+    if not has_permission(db, user, "reservation:create"):
+        raise HTTPException(403, "只有学生账号可以预约座位")
     if idempotency_key:
+        # Serialize retries of the same user-scoped key, even across rooms.
+        db.scalar(select(User.id).where(User.id == user.id).with_for_update())
         previous = db.scalar(
             select(Reservation).where(
                 Reservation.user_id == user.id,
@@ -262,10 +272,67 @@ def create_reservation(
     return reservation
 
 
+def expire_no_show(db: Session, row: Reservation, current: datetime) -> bool:
+    if row.status != "confirmed" or current < row.start_at + timedelta(
+        minutes=CHECKIN_LATE_MINUTES
+    ):
+        return False
+    row.status = "expired"
+    row.violation = True
+    notify(
+        db,
+        row.user_id,
+        "reservation",
+        "未签到，预约已释放",
+        f"预约 {row.id} 未在签到期限内签到，座位已释放并记录一次违约。",
+        row.id,
+        f"reservation:{row.id}:no-show",
+    )
+    write_audit(db, None, "reservation.no_show", "reservation", row.id, {"violation": True})
+    return True
+
+
+def cancel_reservation(db: Session, user: User, reservation_id: str) -> Reservation:
+    row = db.get(Reservation, reservation_id, with_for_update=True)
+    if row is None or (
+        row.user_id != user.id and not has_permission(db, user, "reservation:manage_all")
+    ):
+        raise HTTPException(404, "没有找到本人预约")
+    if row.user_id == user.id and not has_permission(db, user, "reservation:cancel_own"):
+        raise HTTPException(403, "当前账号没有取消预约的权限")
+    if expire_no_show(db, row, now_local()):
+        db.commit()
+        raise HTTPException(409, "签到期限已过，预约已释放并记录违约")
+    if row.status != "confirmed":
+        raise HTTPException(409, "只有未签到的有效预约可以取消")
+    row.status = "cancelled"
+    write_audit(db, user.id, "reservation.cancelled", "reservation", row.id)
+    return row
+
+
+def expire_application(db: Session, application: ClassroomApplication, current: datetime) -> bool:
+    if application.status != "pending" or current < application.timeout_at:
+        return False
+    application.status = "expired"
+    notify(
+        db,
+        application.applicant_id,
+        "approval",
+        "教室申请超时撤销",
+        f"申请 {application.id} 超时未完成审批，已自动撤销；时段没有被占用。",
+        application.id,
+        f"classroom:{application.id}:timeout",
+    )
+    write_audit(db, None, "classroom_application.expired", "classroom_application", application.id)
+    return True
+
+
 def create_classroom_application(
     db: Session, user: User, data: ClassroomApplicationInput
 ) -> ClassroomApplication:
     """Submit a two-stage classroom request without blocking seats yet."""
+    if not has_permission(db, user, "classroom:create"):
+        raise HTTPException(403, "只有学生账号可以提交教室申请")
     validate_range(data.start_at, data.end_at)
     room = db.get(Room, data.room_id)
     if room is None or not room.active:
@@ -332,6 +399,9 @@ def decide_classroom_application(
         or has_permission(db, user, "classroom:approve:any")
     ):
         raise HTTPException(403, f"当前申请需要第 {stage} 级审批")
+    if expire_application(db, application, now_local()):
+        db.commit()
+        raise HTTPException(409, "申请已超过审批期限并撤销")
     db.add(
         ApprovalRecord(
             application_id=application.id,
@@ -379,6 +449,8 @@ def decide_classroom_application(
         room = db.scalar(select(Room).where(Room.id == application.room_id).with_for_update())
         if room is None:
             raise HTTPException(404, "教室资料不存在")
+        if not room.active or not room_hours_allow(room, application.start_at, application.end_at):
+            raise HTTPException(409, "申请时段已不在当前开放时间内")
         conflict = find_room_conflict(db, room, application.start_at, application.end_at)
         if conflict:
             raise HTTPException(
@@ -419,6 +491,8 @@ def decide_classroom_application(
 
 def create_work_order(db: Session, user: User, data: WorkOrderInput) -> WorkOrder:
     """Report a fault and set its first response deadline."""
+    if not has_permission(db, user, "work_order:create"):
+        raise HTTPException(403, "当前账号没有上报故障的权限")
     if data.seat_id:
         seat = db.get(Seat, data.seat_id)
         if seat is None or not seat.active:
@@ -486,7 +560,7 @@ def start_work_order(db: Session, user: User, work_order: WorkOrder) -> WorkOrde
             module="M3",
             source_id=work_order.id,
             start_at=now_local(),
-            end_at=now_local() + timedelta(days=3650),
+            end_at=datetime.max,
             reason="物业工单维修中",
             active=True,
         )
@@ -528,6 +602,9 @@ def cancel_classroom_application(
         or has_permission(db, user, "classroom:manage_all")
     ):
         raise HTTPException(403, "当前账号没有取消教室申请的权限")
+    if expire_application(db, application, now_local()):
+        db.commit()
+        raise HTTPException(409, "申请已超过审批期限并撤销")
     if application.status not in {"pending", "approved"}:
         raise HTTPException(409, "当前申请状态不能取消")
     was_approved = application.status == "approved"
@@ -726,27 +803,21 @@ def execute_agent_action(db: Session, user: User, pending: PendingAgentAction) -
         row = create_work_order(db, user, WorkOrderInput.model_validate(pending.payload))
         result = {"id": row.id, "status": row.status}
     elif pending.action_type == "cancel_classroom_application":
-        application = db.get(ClassroomApplication, pending.payload["application_id"])
+        application = db.get(
+            ClassroomApplication, pending.payload["application_id"], with_for_update=True
+        )
         if application is None:
             raise HTTPException(404, "没有找到教室申请")
         cancel_classroom_application(db, user, application)
         result = {"id": application.id, "status": application.status}
     elif pending.action_type == "cancel_work_order":
-        work_order = db.get(WorkOrder, pending.payload["work_order_id"])
+        work_order = db.get(WorkOrder, pending.payload["work_order_id"], with_for_update=True)
         if work_order is None:
             raise HTTPException(404, "没有找到报修工单")
         cancel_work_order(db, user, work_order)
         result = {"id": work_order.id, "status": work_order.status}
     else:
-        row = db.get(Reservation, pending.payload["reservation_id"])
-        if row is None or (
-            row.user_id != user.id and not has_permission(db, user, "reservation:manage_all")
-        ):
-            raise HTTPException(404, "没有找到可取消的预约")
-        if row.status != "confirmed":
-            raise HTTPException(409, "预约状态已变化，无法取消")
-        row.status = "cancelled"
-        write_audit(db, user.id, "reservation.cancelled", "reservation", row.id)
+        row = cancel_reservation(db, user, pending.payload["reservation_id"])
         result = {"id": row.id, "status": row.status}
     pending.status = "executed"
     pending.result = result

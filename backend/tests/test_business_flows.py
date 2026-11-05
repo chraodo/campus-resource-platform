@@ -159,6 +159,10 @@ def test_repair_hold_is_added_at_start_and_released_at_acceptance(system) -> Non
         f"/api/v1/seats?date={tomorrow}&start_time=10:00&duration_hours=1"
     ).json()["seats"]
     assert next(row for row in restored if row["id"] == "A02")["available"] is True
+    rated = student.post(f"/api/v1/work-orders/{work_order_id}/rating", json={"rating": 5})
+    assert rated.status_code == 200
+    assert rated.json()["rating"] == 5
+    assert [row["id"] for row in student.get("/api/v1/work-orders").json()] == [work_order_id]
 
 
 def test_agent_write_requires_confirmation_and_creates_one_booking(system) -> None:

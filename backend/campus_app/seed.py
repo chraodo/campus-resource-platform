@@ -213,8 +213,8 @@ def seed_demo_data() -> None:
                 resource_id="A03",
                 module="M3",
                 source_id=work_order.id,
-                start_at=datetime.combine(tomorrow, time.min),
-                end_at=datetime.combine(tomorrow + timedelta(days=1), time.min),
+                start_at=now_local(),
+                end_at=datetime.max,
                 reason="物业工单维修中",
                 active=True,
             )

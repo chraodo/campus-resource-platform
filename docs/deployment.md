@@ -10,6 +10,8 @@ uv run alembic -c backend/alembic.ini upgrade head
 uv run uvicorn campus_app.main:app --app-dir backend --reload
 ```
 
+另开终端启动 D 资源进程，使用与 API 相同的环境变量：`uv run uvicorn campus_app.resource_service:app --app-dir backend --host 127.0.0.1 --port 8001`。主服务默认访问该回环地址。Compose 自动使用内网服务名 `resource:8001`。
+
 API 和网页在 <http://127.0.0.1:8000>；开发 API 文档在 `/api/docs`。worker 另开一个终端运行：
 
 ```sh
@@ -26,6 +28,10 @@ PYTHONPATH=backend uv run python -m campus_app.worker
 4. 浏览器打开 `http://127.0.0.1:8000`。停止环境用 `docker compose down`；如需清除所有本地数据库数据，才额外使用 `--volumes`。
 
 GitHub Actions 的 CI 会自动创建一套全新 PostgreSQL 环境，跑登录、查座位、预约幂等和冲突检查，然后销毁测试容器和数据库卷。这是每次工作流的临时环境，不会留下共享测试网址。
+
+## 组内常驻测试环境
+
+CI 文件另含 `deploy-group-test`。由小组准备专用 Linux runner（标签 `campus-staging`），在仓库变量中启用 `ENABLE_GROUP_TEST_DEPLOY=true`，并在 staging Environment 配置独立的 `APP_SECRET`、`POSTGRES_PASSWORD`。仅 main 上通过 CI 的 push 会触发部署。测试环境使用独立 Compose 项目及数据卷，默认监听本机 8100，演示账号只用于受限组内测试。测试与生产发布分别串行执行，请组员约定共享环境的联调时段。运行版本通过 `GET /health` 的 `revision` 字段核对提交 SHA。本轮尚无远程部署记录。
 
 ## 生产发布
 

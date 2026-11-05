@@ -13,9 +13,13 @@ permissions:
 
 jobs:
   deploy:
+    concurrency:
+      group: campus-production-deploy
+      cancel-in-progress: false
     environment: production
     runs-on: self-hosted
     env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
       APP_ENV: production
       APP_SECRET: ${{ secrets.APP_SECRET }}
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -38,23 +42,26 @@ jobs:
 
       - name: Check release and required production settings
         run: |
-          case "${{ inputs.release_tag }}" in v*) ;; *) echo "A version tag beginning with v is required"; exit 1 ;; esac
+          [[ "$RELEASE_TAG" =~ ^v[0-9][a-zA-Z0-9._-]*$ ]] || exit 1
           test -n "$APP_SECRET"
           test -n "$POSTGRES_PASSWORD"
           test -n "$CAMPUS_BACKUP_DIR"
-          test "$(git describe --tags --exact-match HEAD)" = "${{ inputs.release_tag }}"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          echo "APP_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Start database and save a backup
         run: |
+          set -euo pipefail
           docker compose -f compose.yaml -f compose.prod.yaml up --detach db
           for attempt in $(seq 1 60); do
             if docker compose -f compose.yaml -f compose.prod.yaml exec -T db pg_isready -U campus -d campus; then break; fi
             sleep 2
           done
           mkdir -p "$CAMPUS_BACKUP_DIR"
-          backup="$CAMPUS_BACKUP_DIR/campus-${{ inputs.release_tag }}-${{ github.run_id }}.sql.gz"
+          backup="$CAMPUS_BACKUP_DIR/campus-$RELEASE_TAG-$GITHUB_RUN_ID.sql.gz"
           docker compose -f compose.yaml -f compose.prod.yaml exec -T db pg_dump -U campus -d campus | gzip > "$backup"
           test -s "$backup"
+          gzip -t "$backup"
 
       - name: Build and deploy the approved release
         run: docker compose -f compose.yaml -f compose.prod.yaml up --detach --build --remove-orphans
@@ -62,7 +69,7 @@ jobs:
       - name: Verify the deployed API health
         run: |
           for attempt in $(seq 1 60); do
-            if docker compose -f compose.yaml -f compose.prod.yaml exec -T api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"; then exit 0; fi
+            if docker compose -f compose.yaml -f compose.prod.yaml exec -T api python -c "import json, os, urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3))['revision'] == os.environ['APP_REVISION']"; then exit 0; fi
             sleep 2
           done
           docker compose -f compose.yaml -f compose.prod.yaml logs api
